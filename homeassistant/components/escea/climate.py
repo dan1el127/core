@@ -97,7 +97,8 @@ class ControllerEntity(ClimateEntity):
         self._attr_min_temp = controller.min_temp
         self._attr_max_temp = controller.max_temp
 
-        self._attr_unique_id = controller.device_uid
+        self._serial_number = controller.device_uid
+        self._attr_unique_id = str(controller.device_uid)
 
         # temporary assignment to get past mypy checker
         unique_id: str = controller.device_uid
