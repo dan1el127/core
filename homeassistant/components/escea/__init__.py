@@ -11,7 +11,8 @@ PLATFORMS = [CLIMATE_DOMAIN]
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up from a config entry."""
-    await async_start_discovery_service(hass)
+    host = entry.data.get("host")
+    await async_start_discovery_service(hass, host)
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
 

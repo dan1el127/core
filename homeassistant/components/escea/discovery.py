@@ -49,6 +49,7 @@ class DiscoveryServiceListener(Listener):
 
 async def async_start_discovery_service(
     hass: HomeAssistant,
+    ip_addr: str | None
 ) -> AbstractDiscoveryService:
     """Set up the pescea internal discovery."""
     discovery_service = hass.data.get(DATA_DISCOVERY_SERVICE)
@@ -58,7 +59,7 @@ async def async_start_discovery_service(
 
     # discovery local services
     listener = DiscoveryServiceListener(hass)
-    discovery_service = pescea_discovery_service(listener)
+    discovery_service = pescea_discovery_service(listener, ip_addr=ip_addr)
     hass.data[DATA_DISCOVERY_SERVICE] = discovery_service
 
     await discovery_service.start_discovery()
