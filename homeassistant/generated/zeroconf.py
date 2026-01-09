@@ -464,6 +464,11 @@ ZEROCONF = {
             "domain": "daikin",
         },
     ],
+    "_droplet._tcp.local.": [
+        {
+            "domain": "droplet",
+        },
+    ],
     "_dvl-deviceapi._tcp.local.": [
         {
             "domain": "devolo_home_control",
@@ -775,6 +780,11 @@ ZEROCONF = {
             "domain": "octoprint",
         },
     ],
+    "_openevse._tcp.local.": [
+        {
+            "domain": "openevse",
+        },
+    ],
     "_owserver._tcp.local.": [
         {
             "domain": "onewire",
@@ -890,6 +900,10 @@ ZEROCONF = {
         },
     ],
     "_ssh._tcp.local.": [
+        {
+            "domain": "homee",
+            "name": "homee-*",
+        },
         {
             "domain": "smappee",
             "name": "smappee1*",

@@ -75,7 +75,11 @@ def _parse_tool_args(arguments: dict[str, Any]) -> dict[str, Any]:
     small local tool use models. This will repair invalid json arguments and
     omit unnecessary arguments with empty values that will fail intent parsing.
     """
-    return {k: _fix_invalid_arguments(v) for k, v in arguments.items() if v}
+    return {
+        k: _fix_invalid_arguments(v)
+        for k, v in arguments.items()
+        if v is not None and v != ""
+    }
 
 
 def _convert_content(
@@ -95,6 +99,7 @@ def _convert_content(
         return ollama.Message(
             role=MessageRole.ASSISTANT.value,
             content=chat_content.content,
+            thinking=chat_content.thinking_content,
             tool_calls=[
                 ollama.Message.ToolCall(
                     function=ollama.Message.ToolCall.Function(
@@ -103,7 +108,8 @@ def _convert_content(
                     )
                 )
                 for tool_call in chat_content.tool_calls or ()
-            ],
+            ]
+            or None,
         )
     if isinstance(chat_content, conversation.UserContent):
         images: list[ollama.Image] = []
@@ -162,6 +168,8 @@ async def _transform_stream(
             ]
         if (content := response_message.get("content")) is not None:
             chunk["content"] = content
+        if (thinking := response_message.get("thinking")) is not None:
+            chunk["thinking_content"] = thinking
         if response_message.get("done"):
             new_msg = True
         yield chunk
@@ -170,11 +178,13 @@ async def _transform_stream(
 class OllamaBaseLLMEntity(Entity):
     """Ollama base LLM entity."""
 
+    _attr_has_entity_name = True
+    _attr_name = None
+
     def __init__(self, entry: OllamaConfigEntry, subentry: ConfigSubentry) -> None:
         """Initialize the entity."""
         self.entry = entry
         self.subentry = subentry
-        self._attr_name = subentry.title
         self._attr_unique_id = subentry.subentry_id
 
         model, _, version = subentry.data[CONF_MODEL].partition(":")

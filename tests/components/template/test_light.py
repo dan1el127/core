@@ -3,6 +3,7 @@
 from typing import Any
 
 import pytest
+from syrupy.assertion import SnapshotAssertion
 
 from homeassistant.components import light, template
 from homeassistant.components.light import (
@@ -30,13 +31,17 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 
-from .conftest import ConfigurationStyle
+from .conftest import ConfigurationStyle, async_get_flow_preview_state
 
-from tests.common import assert_setup_component
+from tests.common import MockConfigEntry, assert_setup_component
+from tests.typing import WebSocketGenerator
 
 # Represent for light's availability
 _STATE_AVAILABILITY_BOOLEAN = "availability_boolean.state"
 
+TEST_OBJECT_ID = "test_light"
+TEST_ENTITY_ID = f"light.{TEST_OBJECT_ID}"
+TEST_STATE_ENTITY_ID = "light.test_state"
 
 OPTIMISTIC_ON_OFF_LIGHT_CONFIG = {
     "turn_on": {
@@ -2340,19 +2345,20 @@ async def test_effect_template(
     ],
 )
 @pytest.mark.parametrize(
-    ("expected_min_mireds", "attribute_template"),
+    ("expected_min_mireds", "expected_max_kelvin", "attribute_template"),
     [
-        (118, "{{118}}"),
-        (153, "{{x - 12}}"),
-        (153, "None"),
-        (153, "{{ none }}"),
-        (153, ""),
-        (153, "{{ 'a' }}"),
+        (118, 8474, "{{118}}"),
+        (153, 6535, "{{x - 12}}"),
+        (153, 6535, "None"),
+        (153, 6535, "{{ none }}"),
+        (153, 6535, ""),
+        (153, 6535, "{{ 'a' }}"),
     ],
 )
 async def test_min_mireds_template(
     hass: HomeAssistant,
-    expected_min_mireds,
+    expected_min_mireds: int,
+    expected_max_kelvin: int,
     style: ConfigurationStyle,
     setup_light_with_mireds,
 ) -> None:
@@ -2364,6 +2370,7 @@ async def test_min_mireds_template(
     state = hass.states.get("light.test_template_light")
     assert state is not None
     assert state.attributes.get("min_mireds") == expected_min_mireds
+    assert state.attributes.get("max_color_temp_kelvin") == expected_max_kelvin
 
 
 @pytest.mark.parametrize("count", [1])
@@ -2376,19 +2383,20 @@ async def test_min_mireds_template(
     ],
 )
 @pytest.mark.parametrize(
-    ("expected_max_mireds", "attribute_template"),
+    ("expected_max_mireds", "expected_min_kelvin", "attribute_template"),
     [
-        (488, "{{488}}"),
-        (500, "{{x - 12}}"),
-        (500, "None"),
-        (500, "{{ none }}"),
-        (500, ""),
-        (500, "{{ 'a' }}"),
+        (488, 2049, "{{488}}"),
+        (500, 2000, "{{x - 12}}"),
+        (500, 2000, "None"),
+        (500, 2000, "{{ none }}"),
+        (500, 2000, ""),
+        (500, 2000, "{{ 'a' }}"),
     ],
 )
 async def test_max_mireds_template(
     hass: HomeAssistant,
-    expected_max_mireds,
+    expected_max_mireds: int,
+    expected_min_kelvin: int,
     style: ConfigurationStyle,
     setup_light_with_mireds,
 ) -> None:
@@ -2400,6 +2408,7 @@ async def test_max_mireds_template(
     state = hass.states.get("light.test_template_light")
     assert state is not None
     assert state.attributes.get("max_mireds") == expected_max_mireds
+    assert state.attributes.get("min_color_temp_kelvin") == expected_min_kelvin
 
 
 @pytest.mark.parametrize(
@@ -2740,3 +2749,142 @@ async def test_effect_with_empty_action(
     """Test empty set_effect action."""
     state = hass.states.get("light.test_template_light")
     assert state.attributes["supported_features"] == LightEntityFeature.EFFECT
+
+
+@pytest.mark.parametrize(
+    ("count", "light_config"),
+    [
+        (
+            1,
+            {
+                "name": TEST_OBJECT_ID,
+                "state": "{{ is_state('light.test_state', 'on') }}",
+                "turn_on": [],
+                "turn_off": [],
+                "optimistic": True,
+            },
+        )
+    ],
+)
+@pytest.mark.parametrize(
+    "style",
+    [ConfigurationStyle.MODERN, ConfigurationStyle.TRIGGER],
+)
+@pytest.mark.usefixtures("setup_light")
+async def test_optimistic_option(hass: HomeAssistant) -> None:
+    """Test optimistic yaml option."""
+    hass.states.async_set(TEST_STATE_ENTITY_ID, STATE_OFF)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(TEST_ENTITY_ID)
+    assert state.state == STATE_OFF
+
+    await hass.services.async_call(
+        light.DOMAIN,
+        "turn_on",
+        {"entity_id": TEST_ENTITY_ID},
+        blocking=True,
+    )
+
+    state = hass.states.get(TEST_ENTITY_ID)
+    assert state.state == STATE_ON
+
+    hass.states.async_set(TEST_STATE_ENTITY_ID, STATE_ON)
+    await hass.async_block_till_done()
+
+    hass.states.async_set(TEST_STATE_ENTITY_ID, STATE_OFF)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(TEST_ENTITY_ID)
+    assert state.state == STATE_OFF
+
+
+@pytest.mark.parametrize(
+    ("count", "light_config"),
+    [
+        (
+            1,
+            {
+                "name": TEST_OBJECT_ID,
+                "state": "{{ is_state('light.test_state', 'on') }}",
+                "turn_on": [],
+                "turn_off": [],
+                "optimistic": False,
+            },
+        )
+    ],
+)
+@pytest.mark.parametrize(
+    ("style", "expected"),
+    [
+        (ConfigurationStyle.MODERN, STATE_OFF),
+        (ConfigurationStyle.TRIGGER, STATE_UNKNOWN),
+    ],
+)
+@pytest.mark.usefixtures("setup_light")
+async def test_not_optimistic(hass: HomeAssistant, expected: str) -> None:
+    """Test optimistic yaml option set to false."""
+    await hass.services.async_call(
+        light.DOMAIN,
+        "turn_on",
+        {"entity_id": TEST_ENTITY_ID},
+        blocking=True,
+    )
+
+    state = hass.states.get(TEST_ENTITY_ID)
+    assert state.state == expected
+
+
+async def test_setup_config_entry(
+    hass: HomeAssistant,
+    snapshot: SnapshotAssertion,
+) -> None:
+    """Tests creating a light from a config entry."""
+
+    hass.states.async_set(
+        "sensor.test_sensor",
+        "on",
+        {},
+    )
+
+    template_config_entry = MockConfigEntry(
+        data={},
+        domain=template.DOMAIN,
+        options={
+            "name": "My template",
+            "state": "{{ states('sensor.test_sensor') }}",
+            "turn_on": [],
+            "turn_off": [],
+            "template_type": light.DOMAIN,
+        },
+        title="My template",
+    )
+    template_config_entry.add_to_hass(hass)
+
+    assert await hass.config_entries.async_setup(template_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("light.my_template")
+    assert state is not None
+    assert state == snapshot
+
+
+async def test_flow_preview(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """Test the config flow preview."""
+
+    state = await async_get_flow_preview_state(
+        hass,
+        hass_ws_client,
+        light.DOMAIN,
+        {
+            "name": "My template",
+            "state": "{{ 'on' }}",
+            "turn_on": [],
+            "turn_off": [],
+        },
+    )
+
+    assert state["state"] == STATE_ON
